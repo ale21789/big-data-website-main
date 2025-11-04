@@ -208,7 +208,7 @@ This web app analyzes a profile picture to estimate a Big Five personality profi
 """)
 
 st.warning("""
-**Disclaimer:** This is an experimental tool for educational and entertainment purposes only. The results are based on statistical correlations and visual stereotypes, **not** a real psychological assessment. Personality is complex and cannot be accurately determined from a single image.
+**Disclaimer:** we used the findings from the paper to predict the behaviour. This is not the same as a psychological assessment.
 """, icon="⚠️")
 
 uploaded_file = st.file_uploader(
