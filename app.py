@@ -218,50 +218,56 @@ uploaded_file = st.file_uploader(
 
 if uploaded_file is not None:
     st.markdown("---")
-    col1, col2 = st.columns(2)
 
-    with col1:
-        st.subheader("Your Image")
+    # --- Display the uploaded image in a smaller, centered column ---
+    st.subheader("Your Image")
+    # This is a trick to center the image: create three columns, and use the middle one.
+    _ , img_col, _ = st.columns([1, 2, 1]) 
+    with img_col:
         image = Image.open(uploaded_file)
-        # --- CHANGE 1: Set a fixed pixel width for the image ---
-        # The 'width' parameter directly controls the display size in pixels.
-        st.image(image, caption="Uploaded Profile Picture", width=400) # You can adjust this value
+        st.image(image, caption="Uploaded Profile Picture", width=300) # Smaller, fixed width
 
-    with col2:
-        st.subheader("Personality Profile Analysis")
-        with st.spinner("Analyzing visual features..."):
-            # --- Run the full analysis pipeline ---
-            features_dict = extract_features(uploaded_file)
+    st.subheader("Personality Profile Analysis")
+
+    with st.spinner("Analyzing visual features..."):
+        # --- Run the full analysis pipeline (this part is unchanged) ---
+        features_dict = extract_features(uploaded_file)
+        
+        if features_dict:
+            df = pd.DataFrame([features_dict])
+            df["group_photo"] = 0.0 
+            df["smile_level"] = 0.0
             
-            if features_dict:
-                df = pd.DataFrame([features_dict])
-                df["group_photo"] = 0.0 
-                df["smile_level"] = 0.0
-                
-                use_cols = list(W["Openness"].keys()) + list(W["Conscientiousness"].keys()) + list(W["Extraversion"].keys()) + list(W["Agreeableness"].keys()) + list(W["Neuroticism"].keys())
-                use_cols = sorted(list(set(use_cols)))
-                
-                norm_df = df[use_cols].apply(absolute_normalize)
-                if 'smile_level' in norm_df.columns:
-                    norm_df['smile_level'] = norm_df['smile_level'] / 2.0
+            use_cols = list(W["Openness"].keys()) + list(W["Conscientiousness"].keys()) + list(W["Extraversion"].keys()) + list(W["Agreeableness"].keys()) + list(W["Neuroticism"].keys())
+            use_cols = sorted(list(set(use_cols)))
+            
+            norm_df = df[use_cols].apply(absolute_normalize)
+            if 'smile_level' in norm_df.columns:
+                norm_df['smile_level'] = norm_df['smile_level'] / 2.0
 
-                scores = pd.DataFrame({"image": df["image"]})
-                for t in W.keys():
-                    scores[t] = score_trait(t, norm_df)
+            scores = pd.DataFrame({"image": df["image"]})
+            for t in W.keys():
+                scores[t] = score_trait(t, norm_df)
 
-                # --- CHANGE 2: Remove 'use_container_width=True' from the chart ---
-                # This allows the chart to render at the constant size defined by 'figsize' in the plot_radar_chart function.
-                fig = plot_radar_chart(scores.iloc[0])
+            # --- NEW: Create a tab-based layout for the results ---
+            tab1, tab2, tab3 = st.tabs(["📊 Personality Profile", "🔢 Score Details", "⚙️ Visual Features"])
+
+            with tab1:
+                # Display the radar chart as a smaller image inside the first tab
+                st.markdown("##### Visual Personality Profile")
                 chart_as_image = plot_radar_chart(scores.iloc[0])
-                # We display it using st.image with a fixed width, just like the profile picture
-                st.image(chart_as_image, width=450)
+                st.image(chart_as_image, width=400)
 
-                st.markdown("**Personality Scores (0-100):**")
+            with tab2:
+                # Display the scores table in the second tab
+                st.markdown("##### Personality Scores (0-100)")
                 display_scores = scores.drop(columns=['image']).T
                 display_scores.columns = ["Score"]
-                st.dataframe(display_scores)
+                st.dataframe(display_scores, use_container_width=True)
 
-                with st.expander("See Extracted Visual Features"):
-                    st.dataframe(df.drop(columns=['image']).T.rename(columns={0: "Value"}).round(3))
-            else:
-                st.error("Could not process the uploaded image. Please try another one.")
+            with tab3:
+                # Display the raw features in the third tab
+                st.markdown("##### Extracted Visual Features")
+                st.dataframe(df.drop(columns=['image']).T.rename(columns={0: "Value"}).round(3), use_container_width=True)
+        else:
+            st.error("Could not process the uploaded image. Please try another one.")
