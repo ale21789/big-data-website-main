@@ -196,7 +196,7 @@ def render_image_analyzer():
                 
                 for t in W.keys(): 
                     scores[t] = score_trait(t, norm_df)
-                
+                st.session_state.image_scores = scores.copy()
                 tab1, tab2, tab3 = st.tabs(["📊 Personality Profile", "🔢 Score Details", "⚙️ Visual Features"])
                 with tab1:
                     chart_as_image = plot_radar_chart(scores.iloc[0], "Predicted Profile (from Image)")
@@ -295,16 +295,16 @@ def render_personality_test():
         # Navigation buttons
         col1, col2, col3 = st.columns([1, 1, 1])
         if st.session_state.survey_page > 0:
-            if col1.button("⬅️ Previous"):
+            if col1.button("Previous"):
                 st.session_state.survey_page -= 1
                 st.rerun()
         
         if st.session_state.survey_page < (len(IPIP_QUESTIONS) // QUESTIONS_PER_PAGE - 1):
-            if col3.button("Next ➡️"):
+            if col3.button("Next "):
                 st.session_state.survey_page += 1
                 st.rerun()
         else:
-            if col3.button("✅ Submit & See Results", type="primary"):
+            if col3.button("Submit", type="primary"):
                 st.session_state.survey_complete = True
                 st.rerun()
 
