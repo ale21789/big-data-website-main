@@ -210,8 +210,7 @@ def render_image_analyzer():
                 st.error("Could not process the uploaded image. Please try another one.")
 def render_personality_test():
     st.header("Take the 50-Item IPIP Personality Survey")
-    st.info("Answer these 50 questions to get a baseline personality profile. Your answers are not stored.")
-
+    
     # --- Initialize or retrieve the image scores from session state ---
     if 'image_scores' not in st.session_state:
         st.session_state.image_scores = None
@@ -224,7 +223,6 @@ def render_personality_test():
 
     if st.session_state.survey_complete:
         # --- STAGE 2: Display Results & Comparison ---
-        st.success("Survey Complete! Here are your results.")
         
         # Calculate survey scores
         scores = {"E": 0, "A": 0, "C": 0, "N": 0, "O": 0}
@@ -283,30 +281,34 @@ def render_personality_test():
 
         options = ["Very Inaccurate", "Moderately Inaccurate", "Neither Accurate Nor Inaccurate", "Moderately Accurate", "Very Accurate"]
         
+        # This loop now ONLY displays the questions.
         for i in range(start_idx, end_idx):
             q_text, _, _ = IPIP_QUESTIONS[i]
-            # --- CHANGE 1: Set horizontal=False for mobile-friendly vertical layout ---
             answer = st.radio(
                 f"**{i+1}.** {q_text}", options, index=2, horizontal=False, 
                 key=f"q_{i}", help="Select the option that best describes you."
             )
             st.session_state.answers[f"q_{i}"] = options.index(answer) + 1
         
-        # Navigation buttons
-        col1, col2, col3 = st.columns([1, 1, 1])
-        if st.session_state.survey_page > 0:
-            if col1.button("Previous"):
-                st.session_state.survey_page -= 1
-                st.rerun()
-        
-        if st.session_state.survey_page < (len(IPIP_QUESTIONS) // QUESTIONS_PER_PAGE - 1):
-            if col3.button("Next "):
-                st.session_state.survey_page += 1
-                st.rerun()
-        else:
-            if col3.button("Submit", type="primary"):
-                st.session_state.survey_complete = True
-                st.rerun()
+        # --- THE FIX: The navigation block is now OUTSIDE and AFTER the for loop ---
+        st.markdown("---") 
+        col1, col2 = st.columns(2)
+
+        with col1:
+            if st.session_state.survey_page > 0:
+                if st.button("Previous", use_container_width=True, key="prev_button"):
+                    st.session_state.survey_page -= 1
+                    st.rerun()
+
+        with col2:
+            if st.session_state.survey_page < (len(IPIP_QUESTIONS) // QUESTIONS_PER_PAGE - 1):
+                if st.button("Next", use_container_width=True, key="next_button"):
+                    st.session_state.survey_page += 1
+                    st.rerun()
+            else:
+                if st.button("Submit", type="primary", use_container_width=True, key="submit_button"):
+                    st.session_state.survey_complete = True
+                    st.rerun()
 
 # =============================================================================
 # 4. MAIN APP LAYOUT
