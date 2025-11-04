@@ -212,6 +212,10 @@ def render_personality_test():
     st.header("Take the 50-Item IPIP Personality Survey")
     st.info("Answer these 50 questions to get a baseline personality profile. Your answers are not stored.")
 
+    # --- Initialize or retrieve the image scores from session state ---
+    if 'image_scores' not in st.session_state:
+        st.session_state.image_scores = None
+
     # Initialize session state for the survey
     if 'survey_page' not in st.session_state:
         st.session_state.survey_page = 0
@@ -219,30 +223,50 @@ def render_personality_test():
         st.session_state.survey_complete = False
 
     if st.session_state.survey_complete:
-        # --- Display Results ---
+        # --- STAGE 2: Display Results & Comparison ---
         st.success("Survey Complete! Here are your results.")
         
-        # Calculate scores
+        # Calculate survey scores
         scores = {"E": 0, "A": 0, "C": 0, "N": 0, "O": 0}
         for i, (_, trait, keying) in enumerate(IPIP_QUESTIONS):
-            answer = st.session_state.answers.get(f"q_{i}", 3) # Default to neutral if not answered
+            answer = st.session_state.answers.get(f"q_{i}", 3)
             score = answer if keying == 1 else 6 - answer
             scores[trait] += score
         
-        # Normalize scores to 0-100
-        # Each trait has 10 questions. Min score = 10*1=10. Max score = 10*5=50. Range = 40.
         final_scores = {}
         for trait_code, raw_score in scores.items():
             normalized_score = (raw_score - 10) / 40 * 100
             final_scores[TRAIT_MAP[trait_code]] = round(normalized_score, 1)
         
-        scores_df = pd.DataFrame([final_scores])
+        survey_scores_df = pd.DataFrame([final_scores])
         
-        # Display
-        chart = plot_radar_chart(scores_df.iloc[0], "Your Survey Results")
-        st.image(chart, width=400)
-        st.dataframe(scores_df.T.rename(columns={0: "Score (0-100)"}), use_container_width=True)
-        st.warning("Note: The 0-100 score is a normalization of your raw score, not a clinical percentile.")
+        # --- NEW: Comparison View ---
+        st.subheader("Comparison: Survey vs. Image Analysis")
+
+        if st.session_state.image_scores is None:
+            st.warning("You haven't analyzed an image yet. Go to the 'Analyze a Profile Picture' tab first to see a comparison.")
+            
+            # Display only the survey results
+            chart = plot_radar_chart(survey_scores_df.iloc[0], "Your Survey Results")
+            st.image(chart, width=400)
+            st.dataframe(survey_scores_df.T.rename(columns={0: "Score (0-100)"}), use_container_width=True)
+
+        else:
+            # Create side-by-side charts
+            col1, col2 = st.columns(2)
+            with col1:
+                st.markdown("##### Your Survey Results")
+                survey_chart = plot_radar_chart(survey_scores_df.iloc[0], "Survey Profile")
+                st.image(survey_chart)
+            with col2:
+                st.markdown("##### Image Analysis Results")
+                image_chart = plot_radar_chart(st.session_state.image_scores.iloc[0], "Image Profile")
+                st.image(image_chart)
+
+            # Create a comparison dataframe
+            comparison_df = survey_scores_df.T.rename(columns={0: "Survey Score"})
+            comparison_df["Image Score"] = st.session_state.image_scores.drop(columns=['image']).T
+            st.dataframe(comparison_df, use_container_width=True)
 
         if st.button("Take Survey Again"):
             st.session_state.survey_page = 0
@@ -250,7 +274,7 @@ def render_personality_test():
             st.session_state.survey_complete = False
             st.rerun()
     else:
-        # --- Display Questions ---
+        # --- STAGE 1: Display Questions ---
         QUESTIONS_PER_PAGE = 10
         start_idx = st.session_state.survey_page * QUESTIONS_PER_PAGE
         end_idx = start_idx + QUESTIONS_PER_PAGE
@@ -261,8 +285,9 @@ def render_personality_test():
         
         for i in range(start_idx, end_idx):
             q_text, _, _ = IPIP_QUESTIONS[i]
+            # --- CHANGE 1: Set horizontal=False for mobile-friendly vertical layout ---
             answer = st.radio(
-                f"**{i+1}.** {q_text}", options, index=2, horizontal=True, 
+                f"**{i+1}.** {q_text}", options, index=2, horizontal=False, 
                 key=f"q_{i}", help="Select the option that best describes you."
             )
             st.session_state.answers[f"q_{i}"] = options.index(answer) + 1
