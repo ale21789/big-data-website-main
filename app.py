@@ -134,14 +134,17 @@ def score_trait(trait: str, norm_df: pd.DataFrame) -> pd.Series:
     return final_score.clip(0, 100).round(1)
 
 # --- Visualization ---
-def plot_radar_chart(scores_row: pd.Series, title: str) -> Image.Image:
+# NEW, UPGRADED plot_radar_chart function
+def plot_radar_chart(scores1: pd.Series, label1: str, scores2: pd.Series = None, label2: str = None) -> Image.Image:
+    """
+    Creates a radar chart for one or two sets of scores and returns it as a PIL Image object.
+    """
     traits = list(W.keys())
-    vals = scores_row[traits].values.tolist()
-    N = len(vals)
+    N = len(traits)
     angles = np.linspace(0, 2 * np.pi, N, endpoint=False).tolist()
-    vals += vals[:1]
-    angles += angles[:1]
-    fig, ax = plt.subplots(figsize=(5, 5), dpi=100, subplot_kw=dict(polar=True))
+    angles += angles[:1] # Close the loop
+
+    fig, ax = plt.subplots(figsize=(6, 6), dpi=100, subplot_kw=dict(polar=True))
     ax.set_theta_offset(np.pi / 2)
     ax.set_theta_direction(-1)
     ax.set_xticks(angles[:-1])
@@ -150,11 +153,26 @@ def plot_radar_chart(scores_row: pd.Series, title: str) -> Image.Image:
     ax.set_yticks([20, 40, 60, 80])
     ax.set_yticklabels(["20", "40", "60", "80"], color="grey", size=8)
     ax.set_ylim(0, 100)
-    ax.plot(angles, vals, linewidth=2, linestyle='solid', color='#1f77b4')
-    ax.fill(angles, vals, alpha=0.1, color='#1f77b4')
-    ax.set_title(title, size=14, y=1.1)
+
+    # Plot the first data series (e.g., Survey Results in Blue)
+    vals1 = scores1[traits].values.tolist()
+    vals1 += vals1[:1]
+    ax.plot(angles, vals1, linewidth=2, linestyle='solid', color='#1f77b4', label=label1)
+    ax.fill(angles, vals1, alpha=0.1, color='#1f77b4')
+
+    # Plot the second data series if it exists (e.g., Image AI in Red)
+    if scores2 is not None:
+        vals2 = scores2[traits].values.tolist()
+        vals2 += vals2[:1]
+        ax.plot(angles, vals2, linewidth=2, linestyle='solid', color='#d62728', label=label2)
+        ax.fill(angles, vals2, alpha=0.1, color='#d62728')
+    
+    # Add a legend outside the plot area for clarity
+    ax.legend(loc='upper right', bbox_to_anchor=(1.3, 1.1))
+
+    # Save the plot to an in-memory buffer and return as an image
     buf = io.BytesIO()
-    fig.savefig(buf, format='PNG', bbox_inches='tight', pad_inches=0.1)
+    fig.savefig(buf, format='PNG', bbox_inches='tight', pad_inches=0.2)
     plt.close(fig)
     buf.seek(0)
     return Image.open(buf)
@@ -199,7 +217,7 @@ def render_image_analyzer():
                 st.session_state.image_scores = scores.copy()
                 tab1, tab2, tab3 = st.tabs(["📊 Personality Profile", "🔢 Score Details", "⚙️ Visual Features"])
                 with tab1:
-                    chart_as_image = plot_radar_chart(scores.iloc[0], "Predicted Profile (from Image)")
+                    chart_as_image = plot_radar_chart(scores1=scores.iloc[0], label1="Image AI Prediction")
                     st.image(chart_as_image, width=400)
                 with tab2:
                     display_scores = scores.drop(columns=['image']).T.rename(columns={0: "Score"})
@@ -238,34 +256,26 @@ def render_personality_test():
         
         survey_scores_df = pd.DataFrame([final_scores])
         
-        # --- NEW: Comparison View ---
+        # NEW, COMBINED RESULTS BLOCK
         st.subheader("Comparison: Survey vs. Image Analysis")
 
-        if st.session_state.image_scores is None:
-            st.warning("You haven't analyzed an image yet. Go to the 'Analyze a Profile Picture' tab first to see a comparison.")
-            
-            # Display only the survey results
-            chart = plot_radar_chart(survey_scores_df.iloc[0], "Your Survey Results")
-            st.image(chart, width=400)
-            st.dataframe(survey_scores_df.T.rename(columns={0: "Score (0-100)"}), use_container_width=True)
+        # Generate the combined radar chart
+        comparison_chart = plot_radar_chart(
+            scores1=survey_scores_df.iloc[0], 
+            label1="Survey Results",
+            scores2=st.session_state.image_scores.iloc[0] if st.session_state.image_scores is not None else None,
+            label2="Paper Prediction"
+        )
+        st.image(comparison_chart, width=600)
 
-        else:
-            # Create side-by-side charts
-            col1, col2 = st.columns(2)
-            with col1:
-                st.markdown("##### Your Survey Results")
-                survey_chart = plot_radar_chart(survey_scores_df.iloc[0], "Survey Profile")
-                st.image(survey_chart)
-            with col2:
-                st.markdown("##### Image Analysis Results")
-                image_chart = plot_radar_chart(st.session_state.image_scores.iloc[0], "Image Profile")
-                st.image(image_chart)
-
-            # Create a comparison dataframe
+        # Display the comparison table
+        if st.session_state.image_scores is not None:
             comparison_df = survey_scores_df.T.rename(columns={0: "Survey Score"})
             comparison_df["Image Score"] = st.session_state.image_scores.drop(columns=['image']).T
             st.dataframe(comparison_df, use_container_width=True)
-
+        else:
+            st.warning("You haven't analyzed an image yet. The chart above only shows your survey results.")
+            st.dataframe(survey_scores_df.T.rename(columns={0: "Score (0-100)"}), use_container_width=True)
         if st.button("Take Survey Again"):
             st.session_state.survey_page = 0
             st.session_state.answers = {}
