@@ -26,12 +26,27 @@ POPULATION_STATS = {
 }
 
 # WEIGHT RUBRIC (The paper's findings, with corrections)
+# NEW, SIMPLIFIED WEIGHT RUBRIC (with Gender)
 W = {
-    "Openness":         {"sharpness": +0.9, "contrast": +0.7, "simplicity": +0.6, "is_gray": +0.5, "blue": +0.3, "saturation": +0.4, "warm_ratio": -0.2, "colorfulness": -0.3, "smile_level": -0.4},
-    "Conscientiousness":{"brightness": +0.6, "simplicity": +0.3, "sharpness": -0.4, "smile_level": +0.7, "blur": +0.2, "group_photo": -0.3},
-    "Extraversion":     {"colorfulness": +0.8, "saturation": +0.7, "brightness": +0.5, "warm_ratio": +0.4, "red": +0.3, "group_photo": +0.6, "smile_level": +0.3, "simplicity": -0.2},
-    "Agreeableness":    {"warm_ratio": +0.7, "brightness": +0.5, "saturation": +0.3, "red": +0.4, "green": +0.3, "smile_level": +0.8, "blur": +0.4, "sharpness": -0.5, "simplicity": -0.2},
-    "Neuroticism":      {"is_gray": +0.6, "simplicity": +0.4, "blur": +0.3, "sharpness": -0.4, "colorfulness": -0.6, "saturation": -0.5, "brightness": -0.4, "smile_level": -0.7},
+    "Openness": {
+        "sharpness": +0.9, "contrast": +0.7, "simplicity": +0.6, "is_gray": +0.5, "blue": +0.3, 
+        "saturation": +0.4, "warm_ratio": -0.2, "colorfulness": -0.3
+    },
+    "Conscientiousness": {
+        "brightness": +0.6, "simplicity": +0.3, "sharpness": -0.4, "blur": +0.2
+    },
+    "Extraversion": {
+        "colorfulness": +0.8, "saturation": +0.7, "brightness": +0.5, "warm_ratio": +0.4, 
+        "red": +0.3, "simplicity": -0.2, "gender_female": +0.2 # Females tend to smile more, a proxy for extraversion
+    },
+    "Agreeableness": {
+        "warm_ratio": +0.7, "brightness": +0.5, "saturation": +0.3, "red": +0.4, "green": +0.3, 
+        "blur": +0.4, "sharpness": -0.5, "simplicity": -0.2, "gender_female": +0.3 # Females tend to smile more, a proxy for agreeableness
+    },
+    "Neuroticism": {
+        "is_gray": +0.6, "simplicity": +0.4, "blur": +0.3, "sharpness": -0.4, 
+        "colorfulness": -0.6, "saturation": -0.5, "brightness": -0.4
+    },
 }
 
 # IPIP-50 SURVEY QUESTIONS
@@ -182,7 +197,12 @@ def plot_radar_chart(scores1: pd.Series, label1: str, scores2: pd.Series = None,
 # =============================================================================
 
 def render_image_analyzer():
-    st.header("Upload a Profile Picture")
+    st.header("Upload a Profile Picture & Enter Your Info")
+    
+    # --- NEW: User Input for Demographics ---
+    # We create two columns to place the inputs side-by-side.
+    gender = st.radio("Your Gender", ["Female", "Male"], horizontal=True)
+
     uploaded_file = st.file_uploader("Choose an image...", type=['jpg', 'jpeg', 'png'], label_visibility="collapsed")
     
     if uploaded_file is not None:
@@ -194,27 +214,34 @@ def render_image_analyzer():
         
         st.subheader("Personality Profile Analysis")
         with st.spinner("Analyzing visual features..."):
-            # --- FIX #1: Pass the raw bytes to the cached function ---
             features_dict = extract_features(uploaded_file.getvalue())
             
             if features_dict:
-                # Add the image name back in for the DataFrame
                 features_dict['image'] = uploaded_file.name
-                df = pd.DataFrame([features_dict])
+                df = pd.DataFrame([features_dict], index=[0])
                 
-                df["group_photo"], df["smile_level"] = 0.0, 0.0
-                use_cols = sorted(list(set(k for v in W.values() for k in v.keys())))
+                # --- NEW: Add user-provided gender to the dataframe ---
+                # We create a binary feature for gender, as this is how models work best.
+                df['gender_female'] = 1.0 if gender == "Female" else 0.0
                 
-                norm_df = df[use_cols].apply(absolute_normalize)
-                if 'smile_level' in norm_df.columns: 
-                    norm_df['smile_level'] /= 2.0
+                # Get all unique feature names from the weight dictionary
+                all_feature_keys = set()
+                for trait_weights in W.values():
+                    all_feature_keys.update(trait_weights.keys())
                 
-                # --- FIX #2: Correctly initialize the DataFrame for a single row ---
+                # Ensure all required columns exist in the dataframe, filling with 0 if not
+                for key in all_feature_keys:
+                    if key not in df.columns:
+                        df[key] = 0.0
+                
+                norm_df = df[list(all_feature_keys)].apply(absolute_normalize)
+                
                 scores = pd.DataFrame({"image": [uploaded_file.name]}, index=[0])
-                
                 for t in W.keys(): 
                     scores[t] = score_trait(t, norm_df)
+                
                 st.session_state.image_scores = scores.copy()
+                
                 tab1, tab2, tab3 = st.tabs(["📊 Personality Profile", "🔢 Score Details", "⚙️ Visual Features"])
                 with tab1:
                     chart_as_image = plot_radar_chart(scores1=scores.iloc[0], label1="Image AI Prediction")
@@ -223,7 +250,9 @@ def render_image_analyzer():
                     display_scores = scores.drop(columns=['image']).T.rename(columns={0: "Score"})
                     st.dataframe(display_scores, use_container_width=True)
                 with tab3:
-                    st.dataframe(df.drop(columns=['image']).T.rename(columns={0: "Value"}).round(3), use_container_width=True)
+                    # Display all features, including the new gender feature
+                    display_features = df.drop(columns=['image']).T.rename(columns={0: "Value"}).round(3)
+                    st.dataframe(display_features, use_container_width=True)
             else:
                 st.error("Could not process the uploaded image. Please try another one.")
 def render_personality_test():
