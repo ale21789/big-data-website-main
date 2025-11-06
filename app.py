@@ -203,6 +203,8 @@ def render_image_analyzer():
     # We create two columns to place the inputs side-by-side.
     gender = st.radio("Your Gender", ["Female", "Male"], horizontal=True)
 
+
+
     uploaded_file = st.file_uploader("Choose an image...", type=['jpg', 'jpeg', 'png'], label_visibility="collapsed")
     
     if uploaded_file is not None:
