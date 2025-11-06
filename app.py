@@ -9,7 +9,6 @@ import cv2
 from typing import Dict, Union
 import math
 import io
-from deepface import DeepFace
 
 # =============================================================================
 # 1. MODEL CONFIGURATION & SURVEY DATA
@@ -71,51 +70,6 @@ TRAIT_MAP = {"E": "Extraversion", "A": "Agreeableness", "C": "Conscientiousness"
 # =============================================================================
 
 # --- Feature Extraction Utils ---
-@st.cache_data
-def extract_facial_features(image_bytes):
-    """
-    Extracts facial attributes locally using DeepFace.
-    Runs entirely on the server, no external API calls.
-    """
-    try:
-        # DeepFace expects a path or numpy array. We'll use the numpy array.
-        img_arr = np.array(Image.open(io.BytesIO(image_bytes)).convert("RGB"))
-        
-        # Run analysis. Set enforce_detection=False to avoid crashing if no face is found.
-        # Actions: emotion, age, gender. (Glasses need a separate check, we'll skip for simplicity)
-        analysis = DeepFace.analyze(img_arr, actions=['emotion', 'age', 'gender'], enforce_detection=False, silent=True)
-        
-        if not analysis or isinstance(analysis, list) and len(analysis) == 0:
-             return {"num_faces": 0, "is_not_face": 1.0, "one_face": 0.0, "multiple_faces": 0.0}
-             
-        # DeepFace returns a list of dicts (one for each face). We take the first one.
-        res = analysis[0]
-        
-        # Extract emotion scores (they sum to 100, so we divide by 100)
-        emotions = res['emotion']
-        
-        return {
-            "num_faces": 1, # DeepFace is good at finding the main face
-            "is_not_face": 0.0,
-            "one_face": 1.0,
-            "multiple_faces": 0.0,
-
-            # Emotions
-            "smiling": emotions['happy'] / 100.0, # "happy" is the proxy for smiling
-            "joy": emotions['happy'] / 100.0,
-            "sadness": emotions['sad'] / 100.0,
-            "anger": emotions['angry'] / 100.0,
-            # Placeholders for things DeepFace doesn't do easily
-            "face_ratio": 0.4, # Default average
-            "no_glasses": 1.0,
-            "reading_glasses": 0.0,
-            "sunglasses": 0.0,
-        }
-
-    except Exception as e:
-        # If no face is detected or another error occurs
-        return {"num_faces": 0, "is_not_face": 1.0, "one_face": 0.0, "multiple_faces": 0.0}
-    
 @st.cache_data
 def extract_features(uploaded_file_bytes) -> Dict[str, Union[str, float]]:
     img = load_image(io.BytesIO(uploaded_file_bytes))
