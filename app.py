@@ -26,35 +26,32 @@ POPULATION_STATS = {
     'warm_ratio': (0.0245, 0.7634),
 }
 
-# WEIGHT RUBRIC (Hybrid model with facial emotions and user-provided gender)
+# WEIGHT RUBRIC (The paper's findings, with corrections)
+# NEW, SIMPLIFIED WEIGHT RUBRIC (with Gender)
 W = {
     "Openness": {
-        "is_gray": +0.5, "sharpness": +0.3, "contrast": +0.2, "blue": +0.3, "anger": +0.4, "sadness": +0.2,
-        "saturation": -0.2, "colorfulness": -0.3, "smiling": -0.9, "joy": -0.9, "multiple_faces": -1.0,
-        "is_not_face": +0.6
+        "sharpness": +0.9, "contrast": +0.7, "simplicity": +0.6, "is_gray": +0.5, "blue": +0.3, 
+        "saturation": +0.4, "warm_ratio": -0.2, "colorfulness": -0.3
     },
     "Conscientiousness": {
-        "one_face": +1.0, "smiling": +1.9, "joy": +1.8, "brightness": +0.3,
-        "is_not_face": -1.2, "multiple_faces": -0.4, "anger": -0.8, "sadness": -0.5
+        "brightness": +0.6, "simplicity": +0.3, "sharpness": -0.4, "blur": +0.2
     },
     "Extraversion": {
-        "multiple_faces": +0.6, "smiling": +0.5, "joy": +0.6, "colorfulness": +0.8, "saturation": +0.7,
-        "brightness": +0.5, "warm_ratio": +0.4, "red": +0.3,
-        "is_not_face": -1.1, "gender_female": +0.2 # User-provided gender
+        "colorfulness": +0.8, "saturation": +0.7, "brightness": +0.5, "warm_ratio": +0.4, 
+        "red": +0.3, "simplicity": -0.2, "gender_female": +0.2 # Females tend to smile more, a proxy for extraversion
     },
     "Agreeableness": {
-        "smiling": +1.5, "joy": +1.4, "warm_ratio": +0.7, "brightness": +0.5, "saturation": +0.3,
-        "red": +0.4, "green": +0.3, "blur": +0.4,
-        "sharpness": -0.5, "anger": -0.6, "is_not_face": -0.7, "gender_female": +0.3 # User-provided gender
+        "warm_ratio": +0.7, "brightness": +0.5, "saturation": +0.3, "red": +0.4, "green": +0.3, 
+        "blur": +0.4, "sharpness": -0.5, "simplicity": -0.2, "gender_female": +0.3 # Females tend to smile more, a proxy for agreeableness
     },
     "Neuroticism": {
-        "is_not_face": +0.7, "anger": +0.6, "sadness": +0.3, "is_gray": +0.6, "simplicity": +0.4,
-        "blur": +0.3,
-        "smiling": -1.0, "joy": -1.1, "colorfulness": -0.6, "saturation": -0.5, "brightness": -0.4
+        "is_gray": +0.6, "simplicity": +0.4, "blur": +0.3, "sharpness": -0.4, 
+        "colorfulness": -0.6, "saturation": -0.5, "brightness": -0.4
     },
 }
 
 # IPIP-50 SURVEY QUESTIONS
+# Format: (Question Text, Trait, Keying [+1 for normal, -1 for reversed])
 IPIP_QUESTIONS = [
     ("I am the life of the party.", "E", 1), ("I feel little concern for others.", "A", -1), ("I am always prepared.", "C", 1), ("I get stressed out easily.", "N", 1), ("I have a rich vocabulary.", "O", 1),
     ("I don't talk a lot.", "E", -1), ("I am interested in people.", "A", 1), ("I leave my belongings around.", "C", -1), ("I am relaxed most of the time.", "N", -1), ("I have difficulty understanding abstract ideas.", "O", -1),
@@ -73,7 +70,75 @@ TRAIT_MAP = {"E": "Extraversion", "A": "Agreeableness", "C": "Conscientiousness"
 # 2. FEATURE EXTRACTION & SCORING FUNCTIONS
 # =============================================================================
 
-# --- Helper Functions ---
+# --- Feature Extraction Utils ---
+@st.cache_data
+def extract_facial_features(image_bytes):
+    """
+    Extracts facial attributes locally using DeepFace.
+    Runs entirely on the server, no external API calls.
+    """
+    try:
+        # DeepFace expects a path or numpy array. We'll use the numpy array.
+        img_arr = np.array(Image.open(io.BytesIO(image_bytes)).convert("RGB"))
+        
+        # Run analysis. Set enforce_detection=False to avoid crashing if no face is found.
+        # Actions: emotion, age, gender. (Glasses need a separate check, we'll skip for simplicity)
+        analysis = DeepFace.analyze(img_arr, actions=['emotion', 'age', 'gender'], enforce_detection=False, silent=True)
+        
+        if not analysis or isinstance(analysis, list) and len(analysis) == 0:
+             return {"num_faces": 0, "is_not_face": 1.0, "one_face": 0.0, "multiple_faces": 0.0}
+             
+        # DeepFace returns a list of dicts (one for each face). We take the first one.
+        res = analysis[0]
+        
+        # Extract emotion scores (they sum to 100, so we divide by 100)
+        emotions = res['emotion']
+        
+        return {
+            "num_faces": 1, # DeepFace is good at finding the main face
+            "is_not_face": 0.0,
+            "one_face": 1.0,
+            "multiple_faces": 0.0,
+
+            # Emotions
+            "smiling": emotions['happy'] / 100.0, # "happy" is the proxy for smiling
+            "joy": emotions['happy'] / 100.0,
+            "sadness": emotions['sad'] / 100.0,
+            "anger": emotions['angry'] / 100.0,
+            # Placeholders for things DeepFace doesn't do easily
+            "face_ratio": 0.4, # Default average
+            "no_glasses": 1.0,
+            "reading_glasses": 0.0,
+            "sunglasses": 0.0,
+        }
+
+    except Exception as e:
+        # If no face is detected or another error occurs
+        return {"num_faces": 0, "is_not_face": 1.0, "one_face": 0.0, "multiple_faces": 0.0}
+    
+@st.cache_data
+def extract_features(uploaded_file_bytes) -> Dict[str, Union[str, float]]:
+    img = load_image(io.BytesIO(uploaded_file_bytes))
+    if img is None: return None
+    npimg = to_np(img)
+    gray_img = np.mean(npimg, axis=-1)
+    hsv_img = rgb_to_hsv(npimg)
+    sharpness = laplacian_variance(gray_img)
+    gray_uint8 = (gray_img * 255).astype(np.uint8)
+    grad_x = cv2.Sobel(gray_uint8, cv2.CV_64F, 1, 0, ksize=3)
+    grad_y = cv2.Sobel(gray_uint8, cv2.CV_64F, 0, 1, ksize=3)
+    edge_mag = np.sqrt(grad_x**2 + grad_y**2) / 255.0
+    return {
+        "is_gray": 1.0 if is_grayscale(npimg) else 0.0, "brightness": float(np.mean(hsv_img[..., 2])),
+        "contrast": float(np.std(hsv_img[..., 2])), "saturation": float(np.mean(hsv_img[..., 1])),
+        "red": float(np.mean(npimg[..., 0])), "green": float(np.mean(npimg[..., 1])),
+        "blue": float(np.mean(npimg[..., 2])), "colorfulness": colorfulness_hs(npimg),
+        "sharpness": sharpness, "blur": 1.0 / (1.0 + sharpness) if sharpness > 0 else 1.0,
+        "edges_density": float(np.mean(edge_mag)), "thirds": thirds_alignment(edge_mag),
+        "simplicity": simplicity(npimg), "warm_ratio": warm_ratio(hsv_img),
+    }
+
+# (Helper functions for extract_features are placed here to keep the code clean)
 def load_image(uploaded_file, max_dim: int = 512) -> Image.Image:
     try:
         img = Image.open(uploaded_file).convert("RGB")
@@ -108,67 +173,6 @@ def warm_ratio(hsv_img: np.ndarray) -> float:
     h, s, v = hsv_img[..., 0], hsv_img[..., 1], hsv_img[..., 2]
     return float(np.mean(((h < 0.167) | (h > 0.833)) & (s > 0.2) & (v > 0.2)))
 
-# --- Main Feature Extraction Functions ---
-@st.cache_data
-def extract_facial_features(image_bytes):
-    """
-    Extracts facial emotions and face count locally using DeepFace.
-    It IGNORES the model's age and gender predictions.
-    """
-    try:
-        img_arr = np.array(Image.open(io.BytesIO(image_bytes)).convert("RGB"))
-        analysis = DeepFace.analyze(img_arr, actions=['emotion'], enforce_detection=False, silent=True)
-        
-        if not analysis or isinstance(analysis, list) and len(analysis) == 0:
-             return {
-                 "num_faces": 0, "is_not_face": 1.0, "one_face": 0.0, "multiple_faces": 0.0,
-                 "smiling": 0.0, "joy": 0.0, "sadness": 0.0, "anger": 0.0
-             }
-             
-        res = analysis[0]
-        emotions = res['emotion']
-        
-        return {
-            "num_faces": 1, "is_not_face": 0.0, "one_face": 1.0, "multiple_faces": 0.0,
-            "smiling": emotions['happy'] / 100.0, "joy": emotions['happy'] / 100.0,
-            "sadness": emotions['sad'] / 100.0, "anger": emotions['angry'] / 100.0,
-        }
-    except Exception as e:
-        return {
-            "num_faces": 0, "is_not_face": 1.0, "one_face": 0.0, "multiple_faces": 0.0,
-            "smiling": 0.0, "joy": 0.0, "sadness": 0.0, "anger": 0.0
-        }
-
-@st.cache_data
-def extract_all_features(uploaded_file_bytes) -> Dict[str, Union[str, float]]:
-    # 1. Extract aesthetic features
-    img = load_image(io.BytesIO(uploaded_file_bytes))
-    if img is None: return None
-    npimg = to_np(img)
-    gray_img = np.mean(npimg, axis=-1)
-    hsv_img = rgb_to_hsv(npimg)
-    sharpness = laplacian_variance(gray_img)
-    gray_uint8 = (gray_img * 255).astype(np.uint8)
-    grad_x = cv2.Sobel(gray_uint8, cv2.CV_64F, 1, 0, ksize=3)
-    grad_y = cv2.Sobel(gray_uint8, cv2.CV_64F, 0, 1, ksize=3)
-    edge_mag = np.sqrt(grad_x**2 + grad_y**2) / 255.0
-    
-    aesthetic_features = {
-        "is_gray": 1.0 if is_grayscale(npimg) else 0.0, "brightness": float(np.mean(hsv_img[..., 2])),
-        "contrast": float(np.std(hsv_img[..., 2])), "saturation": float(np.mean(hsv_img[..., 1])),
-        "red": float(np.mean(npimg[..., 0])), "green": float(np.mean(npimg[..., 1])),
-        "blue": float(np.mean(npimg[..., 2])), "colorfulness": colorfulness_hs(npimg),
-        "sharpness": sharpness, "blur": 1.0 / (1.0 + sharpness) if sharpness > 0 else 1.0,
-        "edges_density": float(np.mean(edge_mag)), "thirds": thirds_alignment(edge_mag),
-        "simplicity": simplicity(npimg), "warm_ratio": warm_ratio(hsv_img),
-    }
-
-    # 2. Extract facial features
-    facial_features = extract_facial_features(uploaded_file_bytes)
-
-    # 3. Combine both dictionaries
-    return {**aesthetic_features, **facial_features}
-
 # --- Normalization and Scoring ---
 def absolute_normalize(col: pd.Series) -> pd.Series:
     feature_name = col.name
@@ -191,11 +195,16 @@ def score_trait(trait: str, norm_df: pd.DataFrame) -> pd.Series:
     return final_score.clip(0, 100).round(1)
 
 # --- Visualization ---
+# NEW, UPGRADED plot_radar_chart function
 def plot_radar_chart(scores1: pd.Series, label1: str, scores2: pd.Series = None, label2: str = None) -> Image.Image:
+    """
+    Creates a radar chart for one or two sets of scores and returns it as a PIL Image object.
+    """
     traits = list(W.keys())
     N = len(traits)
     angles = np.linspace(0, 2 * np.pi, N, endpoint=False).tolist()
-    angles += angles[:1]
+    angles += angles[:1] # Close the loop
+
     fig, ax = plt.subplots(figsize=(6, 6), dpi=100, subplot_kw=dict(polar=True))
     ax.set_theta_offset(np.pi / 2)
     ax.set_theta_direction(-1)
@@ -205,16 +214,24 @@ def plot_radar_chart(scores1: pd.Series, label1: str, scores2: pd.Series = None,
     ax.set_yticks([20, 40, 60, 80])
     ax.set_yticklabels(["20", "40", "60", "80"], color="grey", size=8)
     ax.set_ylim(0, 100)
+
+    # Plot the first data series (e.g., Survey Results in Blue)
     vals1 = scores1[traits].values.tolist()
     vals1 += vals1[:1]
     ax.plot(angles, vals1, linewidth=2, linestyle='solid', color='#1f77b4', label=label1)
     ax.fill(angles, vals1, alpha=0.1, color='#1f77b4')
+
+    # Plot the second data series if it exists (e.g., Image AI in Red)
     if scores2 is not None:
         vals2 = scores2[traits].values.tolist()
         vals2 += vals2[:1]
         ax.plot(angles, vals2, linewidth=2, linestyle='solid', color='#d62728', label=label2)
         ax.fill(angles, vals2, alpha=0.1, color='#d62728')
+    
+    # Add a legend outside the plot area for clarity
     ax.legend(loc='upper right', bbox_to_anchor=(1.3, 1.1))
+
+    # Save the plot to an in-memory buffer and return as an image
     buf = io.BytesIO()
     fig.savefig(buf, format='PNG', bbox_inches='tight', pad_inches=0.2)
     plt.close(fig)

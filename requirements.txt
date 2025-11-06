@@ -1,11 +1,9 @@
 streamlit
 pandas
-numpy==1.26.4
+numpy
 Pillow
 matplotlib
 opencv-python-headless
 scipy
-tensorflow==2.15.0
-keras==2.15.0
-protobuf==4.25.3
-deepface==0.0.95
+deepface
+tf-keras
